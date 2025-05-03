@@ -1,42 +1,35 @@
-cmake_minimum_required(VERSION 3.10...3.24)
+cmake_minimum_required(VERSION 3.10)
 project(QuantumMeltdownSimulator)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Copy config.json into build dir
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/config.json
-  ${CMAKE_CURRENT_BINARY_DIR}/config.json
-  COPYONLY
-)
+# --- copy config.json into build dir ---------------------------------
+configure_file(config.json config.json COPYONLY)
 
-# Find OpenMP for parallel tasks
+# --- OpenMP -----------------------------------------------------------
 find_package(OpenMP REQUIRED)
 
-# Fetch third-party libs
+# --- third‑party: nlohmann/json + googletest --------------------------
 include(FetchContent)
-
 FetchContent_Declare(
   json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   GIT_TAG v3.11.2
 )
-
 FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
   GIT_TAG release-1.12.1
 )
-
 FetchContent_MakeAvailable(json googletest)
 
-# Build core simulator library
+# --- simulator static library ----------------------------------------
 add_library(quantum_simulator STATIC
     src/Particle.cpp
     src/ContainmentField.cpp
     src/ThreadManager.cpp
-    src/Simulation.cpp       # ← Make sure Simulation.cpp is here!
+    src/Simulation.cpp             # ← ←  keep this!
 )
 
 target_include_directories(quantum_simulator PUBLIC
@@ -44,20 +37,25 @@ target_include_directories(quantum_simulator PUBLIC
     ${json_SOURCE_DIR}/include
 )
 
-target_link_libraries(quantum_simulator PUBLIC OpenMP::OpenMP_CXX)
+target_link_libraries(quantum_simulator
+    PUBLIC OpenMP::OpenMP_CXX       # OpenMP visible to dependents
+)
 
-# Build the main application
+# --- main application -------------------------------------------------
 add_executable(quantum_simulator_app
     src/main.cpp
 )
 
-target_link_libraries(quantum_simulator_app PRIVATE quantum_simulator)
+target_link_libraries(quantum_simulator_app
+    PRIVATE quantum_simulator       # ← ←  link the library!
+)
 
-# (Optional) Tests
+# --- (optional) tests -------------------------------------------------
 enable_testing()
 add_executable(quantum_tests
     tests/ParticleTests.cpp
-    tests/SimulationTests.cpp   # ← if you have tests for Simulation
 )
-target_link_libraries(quantum_tests PRIVATE quantum_simulator gtest_main)
+target_link_libraries(quantum_tests
+    PRIVATE quantum_simulator gtest_main
+)
 add_test(NAME ParticleTests COMMAND quantum_tests)
