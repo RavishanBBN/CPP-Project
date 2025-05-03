@@ -1,101 +1,92 @@
 #include "../include/ThreadManager.h"
 #include <stdexcept>
 
-ThreadManager::ThreadManager(size_t n) : numThreads(n)
+// ------------------------------------------------------------------ ctor / dtor
+ThreadManager::ThreadManager(size_t n) : threadCount(n)
 {
     if (n == 0)
         throw std::invalid_argument("ThreadManager: numThreads must be > 0");
 }
 
-ThreadManager::~ThreadManager()
-{
-    stop();
-}
+ThreadManager::~ThreadManager() { stop(); }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------ start / stop
 void ThreadManager::start()
 {
-    if (running.load()) return;        // already running
+    if (running.load()) return;            // already running
     running.store(true);
-    threads.reserve(numThreads);
-    for (size_t i = 0; i < numThreads; ++i)
-        threads.emplace_back(&ThreadManager::workerThread, this, i);
+    workers.reserve(threadCount);
+    for (size_t i = 0; i < threadCount; ++i)
+        workers.emplace_back(&ThreadManager::workerLoop, this);
 }
 
-// ------------------------------------------------------------------
 void ThreadManager::stop()
 {
     if (!running.load()) return;
     {
-        std::scoped_lock lock(queueMtx);
+        std::lock_guard lk(jobsMtx);
         running.store(false);
     }
-    queueCv.notify_all();
-    for (auto& t : threads)
+    jobsCv.notify_all();
+    for (auto& t : workers)
         if (t.joinable()) t.join();
-    threads.clear();
+    workers.clear();
 }
 
-// ------------------------------------------------------------------
-void ThreadManager::addTask(const std::function<void()>& task)
+// ------------------------------------------------------------------ resize
+void ThreadManager::setNumThreads(size_t n)
+{
+    if (n == threadCount) return;
+    stop();
+    threadCount = n;
+    start();
+}
+
+// ------------------------------------------------------------------ enqueue
+void ThreadManager::addTask(const std::function<void()>& job)
 {
     {
-        std::scoped_lock lock(queueMtx);
-        taskQueue.push(task);
+        std::lock_guard lk(jobsMtx);
+        jobs.push(job);
     }
-    queueCv.notify_one();
+    jobsCv.notify_one();
 }
 
-// ------------------------------------------------------------------
-bool ThreadManager::popTask(std::function<void()>& task)
+// ------------------------------------------------------------------ pop helper
+bool ThreadManager::popTask(std::function<void()>& job)
 {
-    std::unique_lock lock(queueMtx);
-    queueCv.wait(lock, [&]{ return !running.load() || !taskQueue.empty(); });
-    if (!running.load() && taskQueue.empty())
-        return false;                         // shutting down
-    task = std::move(taskQueue.front());
-    taskQueue.pop();
-    ++activeThreads;
+    std::unique_lock lk(jobsMtx);
+    jobsCv.wait(lk, [&]{ return !running.load() || !jobs.empty(); });
+    if (!running.load() && jobs.empty()) return false;
+    job = std::move(jobs.front());
+    jobs.pop();
+    ++active;
     return true;
 }
 
-// ------------------------------------------------------------------
-void ThreadManager::workerThread(size_t /*id*/)
+// ------------------------------------------------------------------ worker loop
+void ThreadManager::workerLoop()
 {
     std::function<void()> job;
     while (true)
     {
-        if (!popTask(job)) break;             // shutdown
-        job();                                // run task
-        --activeThreads;
+        if (!popTask(job)) break;          // pool shutting down
+        job();                             // run
+        --active;
 
-        // notify waitForCompletion when queue empty & no active workers
-        if (taskQueue.empty() && activeThreads.load() == 0)
+        // wake anyone waiting for all work to finish
+        if (jobs.empty() && active.load() == 0)
             doneCv.notify_all();
     }
 }
 
-// ------------------------------------------------------------------
+// ------------------------------------------------------------------ wait
 void ThreadManager::waitForCompletion()
 {
-    std::unique_lock lock(queueMtx);
-    doneCv.wait(lock, [&]{ return taskQueue.empty() && activeThreads.load() == 0; });
+    std::unique_lock lk(jobsMtx);
+    doneCv.wait(lk, [&]{ return jobs.empty() && active.load() == 0; });
 }
 
-// ------------------------------------------------------------------
-size_t ThreadManager::getTaskCount() const
-{
-    std::scoped_lock lock(queueMtx);
-    return taskQueue.size();
-}
-
-size_t ThreadManager::getActiveThreadCount() const { return activeThreads.load(); }
-
-// ------------------------------------------------------------------
-void ThreadManager::setNumThreads(size_t n)
-{
-    if (n == numThreads) return;
-    stop();
-    numThreads = n;
-    start();
-}
+// ------------------------------------------------------------------ queries
+size_t ThreadManager::getTaskCount()        const { std::lock_guard lk(jobsMtx); return jobs.size(); }
+size_t ThreadManager::getActiveThreadCount()const { return active.load(); }

@@ -7,46 +7,45 @@
 #include <functional>
 #include <queue>
 
-/// Simple thread‑pool that executes std::function<void()> tasks.
+/// Very small fixed‑size thread‑pool.
+///  • addTask() puts a job in the queue
+///  • waitForCompletion() blocks until queue empty + workers idle
 class ThreadManager {
 public:
-    explicit ThreadManager(size_t numThreads);
+    explicit ThreadManager(size_t numThreads = std::thread::hardware_concurrency());
     ~ThreadManager();
 
-    // --- lifecycle -------------------------------------------------
-    void start();             ///< spawn worker threads (idempotent)
-    void stop();              ///< finish queued tasks, join threads
-    void waitForCompletion(); ///< block until queue empty & workers idle
+    void start();             ///< spawn workers (idempotent)
+    void stop();              ///< finish queue, join threads
+    void waitForCompletion(); ///< wait until queue empty & idle
 
-    // --- enqueue ---------------------------------------------------
-    void addTask(const std::function<void()>& task);
+    void addTask(const std::function<void()>& job);
 
-    // --- introspection --------------------------------------------
+    // --- runtime info ---------------------------------------------
     size_t getTaskCount()        const;
     size_t getActiveThreadCount()const;
-    size_t getNumThreads()       const { return numThreads; }
+    size_t getNumThreads()       const { return threadCount; }
     bool   isRunning()           const { return running.load(std::memory_order_acquire); }
 
-    // Dynamically resize pool (stop + restart).
+    // Resize pool – stops current workers then restarts with new size
     void setNumThreads(size_t n);
 
     ThreadManager(const ThreadManager&)            = delete;
     ThreadManager& operator=(const ThreadManager&) = delete;
 
 private:
-    void workerThread(size_t id);              // function run by each worker
+    void workerLoop();                       // main loop for each worker
+    bool popTask(std::function<void()>& job); // helper: wait & pop
 
-    bool popTask(std::function<void()>& task); // helper: get next task
+    // --- data ------------------------------------------------------
+    size_t                       threadCount;
+    std::vector<std::thread>     workers;
 
-    // --- data members ---------------------------------------------
-    size_t                        numThreads;
-    std::vector<std::thread>      threads;
+    std::queue<std::function<void()>> jobs;
+    mutable std::mutex           jobsMtx;
+    std::condition_variable      jobsCv;
 
-    std::queue<std::function<void()>> taskQueue;
-    mutable std::mutex            queueMtx;
-    std::condition_variable       queueCv;
-
-    std::condition_variable       doneCv;      // used by waitForCompletion
-    std::atomic<bool>             running {false};
-    std::atomic<size_t>           activeThreads {0};
+    std::condition_variable      doneCv;     // used by waitForCompletion
+    std::atomic<bool>            running{false};
+    std::atomic<size_t>          active{0};
 };
