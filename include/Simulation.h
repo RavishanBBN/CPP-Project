@@ -50,7 +50,7 @@ private:
 
     std::vector<std::thread> workerThreads;
     std::mutex simulationMutex;
-    std::mutex particleMutex;  
+    mutable std::mutex particleMutex;  
     std::condition_variable cv;
     std::atomic<bool> running{false};
     size_t numThreads;
