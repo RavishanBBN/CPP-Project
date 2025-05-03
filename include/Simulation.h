@@ -1,57 +1,47 @@
 #pragma once
 
+#include "Config.h"
 #include "Particle.h"
 #include "ContainmentField.h"
 #include "ThreadManager.h"
+
 #include <vector>
 #include <memory>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-
-struct Config;
 
 class Simulation {
 public:
-    Simulation(const Config& config);
+    explicit Simulation(const Config& cfg);
     ~Simulation();
 
-    void initializeParticles(const Config& config);
-    void setContainmentField(std::unique_ptr<ContainmentField> field);
-
+    /// Start the worker threads
     void start();
+    /// Stop all threads and clean up
     void stop();
+    /// Advance the simulation by one time step
     void step();
 
-    void addParticle(std::unique_ptr<Particle> particle);
-    void removeEscapedParticles(); 
+    /// How many particles are still in the field?
     size_t getParticleCount() const;
-    const std::vector<std::unique_ptr<Particle>>& getParticles() const; 
+    /// Access particles for rendering or inspection
+    const std::vector<std::unique_ptr<Particle>>& getParticles() const;
+    /// Sum of all particle energies
+    double getTotalEnergy() const;
 
-    double getTotalEnergy() const; 
-
-    void setNumThreads(size_t numThreads);
-    size_t getNumThreads() const;
-    const ThreadManager& getThreadManager() const { return *threadManager; }
-
-    void updatePositions(double timeStep); 
-    void applyForces(double timeStep);
-    void handleCollisions();
+    /// Adjust the number of threads in use at runtime
+    void setNumThreads(size_t newNumThreads);
 
 private:
-    void workerThread(size_t threadId);  
+    void initializeParticles(const Config& cfg);
+    void removeEscapedParticles();
+    void applyForces(double dt);
+    void updatePositions(double dt);
+    void handleCollisions();
 
     std::vector<std::unique_ptr<Particle>> particles;
     std::unique_ptr<ContainmentField> containmentField;
-    std::unique_ptr<ThreadManager> threadManager;
-    double fieldSize; 
-    const double timeStep; 
+    std::unique_ptr<ThreadManager>   threadManager;
 
-    std::vector<std::thread> workerThreads;
-    std::mutex simulationMutex;
-    std::mutex particleMutex;  
-    std::condition_variable cv;
-    std::atomic<bool> running{false};
+    double fieldSize;
+    double timeStep;
     size_t numThreads;
-}; 
+};
