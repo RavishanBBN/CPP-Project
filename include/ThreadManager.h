@@ -1,3 +1,4 @@
+// include/ThreadManager.h
 #pragma once
 
 #include <vector>
@@ -8,38 +9,48 @@
 #include <functional>
 #include <queue>
 
+/// A simple thread‐pool manager that executes tasks in parallel.
 class ThreadManager {
 public:
-    ThreadManager(size_t numThreads);
+    /// Construct with a given number of worker threads.
+    explicit ThreadManager(size_t numThreads);
     ~ThreadManager();
 
+    /// Start all worker threads.
     void start();
-    void stop();
-    void waitForCompletion(); 
 
-    void addTask(std::function<void()> task); 
+    /// Stop processing: finish queued tasks, then join threads.
+    void stop();
+
+    /// Block until queue is empty and no thread is active.
+    void waitForCompletion();
+
+    /// Enqueue a new task.
+    void addTask(std::function<void()> task);
+
+    /// Number of tasks currently waiting.
     size_t getTaskCount() const;
 
-    void setNumThreads(size_t numThreads);
+    /// Get and set the number of worker threads.
     size_t getNumThreads() const;
+    void setNumThreads(size_t numThreads);
 
+    /// Number of threads actively executing tasks.
     size_t getActiveThreadCount() const;
 
+    /// Is the pool currently running?
     bool isRunning() const;
 
 private:
-    void workerThread(size_t threadId); 
+    /// Worker thread main loop.
+    void workerThread();
 
-    void processNextTask(); 
+    mutable std::mutex queueMutex_;
+    std::condition_variable taskCv_;
+    std::queue<std::function<void()>> taskQueue_;
 
-    std::vector<std::thread> threads;
-    std::queue<std::function<void()>> taskQueue;
-    mutable std::mutex taskMutex;
-    mutable std::mutex completionMutex; 
-    std::condition_variable taskCondition;
-    std::atomic<bool> running{false};
-    std::atomic<size_t> activeThreads{0};
-    size_t numThreads;
-
-    std::vector<std::atomic<size_t>> threadLoads; 
+    std::vector<std::thread> threads_;
+    std::atomic<bool> running_{false};
+    std::atomic<size_t> activeCount_{0};
+    size_t threadCount_;
 };

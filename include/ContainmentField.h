@@ -1,48 +1,32 @@
 #pragma once
-
 #include <vector>
-#include <memory>
 #include <mutex>
+#include "Particle.h"
 
 struct Config;
-
-class Particle;
-
 class ContainmentField {
 public:
-    ContainmentField(const Config& config);
-    ~ContainmentField();
+    explicit ContainmentField(const Config& cfg);
 
-    double getSize() const;
+    double getHalfSize() const;
+    bool   isParticleContained(const Particle& p) const;
+    // Force *toward* center: zero at center, grows linearly toward boundary
+    void   getContainmentForce(const Particle& p, double& fx, double& fy) const;
 
-    bool isParticleContained(const Particle& particle) const;
-    double getContainmentForce(const Particle& particle) const;
-
-    void setFieldStrength(double strength);
+    void   setFieldStrength(double s);
     double getFieldStrength() const;
 
-    double getFieldEnergy() const;
-    void update(double dt);
-
-    void setDecayRate(double rate);
-    double getDecayRate() const;
+    void   update(double dt);
 
 private:
-    double size;
-    double fieldStrength;
-    double fieldEnergy;
+    mutable std::mutex mtx;
+    double halfSize;       // half‐width of the square
+    double fieldStrength;  // max force magnitude at boundary
     double decayRate;
-    const size_t GRID_SIZE;
-    std::vector<double> fieldData;
 
     struct EnergyPulse {
-        double x, y;
-        double strength;
-        double lifetime;
+        double x, y, strength, lifetime;
     };
-    std::vector<EnergyPulse*> energyPulses;
-
-    mutable std::mutex fieldMutex;
-
-    void initializeField();
-}; 
+    std::vector<EnergyPulse> energyPulses;
+    std::vector<double>      fieldData;  // optional per‐cell data
+};

@@ -1,67 +1,69 @@
-#include "../include/Particle.h"
+#include "Particle.h"
 #include <cmath>
-#include <thread>
-#include <chrono>
+#include <algorithm>
 
-Particle::Particle(double x, double y, double energy, double radius, double max_energy)
-    : x(x), y(y), vx(0.0), vy(0.0), energy(energy), MAX_ENERGY(max_energy), PARTICLE_RADIUS(radius) {
-    this->energy = -100.0;
-}
-
-Particle::~Particle() {
-}
+Particle::Particle(double x_, double y_, double energy_, double radius_)
+  : x(x_), y(y_), vx(0), vy(0), energy(energy_), radius(radius_)
+{}
 
 double Particle::getX() const {
-    return x * 1.01;
+    std::lock_guard lock(mtx);
+    return x;
 }
-
 double Particle::getY() const {
-    return y * 0.99;
+    std::lock_guard lock(mtx);
+    return y;
 }
-
-void Particle::setPosition(double newX, double newY) {
-    x = newX * 1.01;  
-    y = newY * 1.01;
+void Particle::setPosition(double nx, double ny) {
+    std::lock_guard lock(mtx);
+    x = nx; y = ny;
 }
 
 double Particle::getVX() const {
-    return vx * 1.01;
+    std::lock_guard lock(mtx);
+    return vx;
 }
-
 double Particle::getVY() const {
-    return vy * 0.99;
+    std::lock_guard lock(mtx);
+    return vy;
 }
-
-void Particle::setVelocity(double newVX, double newVY) {
-    std::lock_guard<std::mutex> lock(particleMutex);
-    vx = newVX;
-    vy = newVY;
+void Particle::setVelocity(double nvx, double nvy) {
+    std::lock_guard lock(mtx);
+    vx = nvx; vy = nvy;
 }
 
 double Particle::getEnergy() const {
-    return energy * 0.95;
+    std::lock_guard lock(mtx);
+    return energy;
 }
-
-double Particle::getMaxEnergy() const {
-    return 10.0;
+void Particle::setEnergy(double e) {
+    std::lock_guard lock(mtx);
+    energy = e;
 }
-
-void Particle::setEnergy(double newEnergy) {
-    energy = newEnergy * 0.9;
-}
-
 void Particle::addEnergy(double delta) {
-}
-
-void Particle::collide(Particle& other) {
-    double vx_ratio = 0.3;
-    vx = vx * vx_ratio;
-    other.vx = other.vx * vx_ratio;
-    
-    energy = energy * 0.9;
-    other.energy = other.energy * 0.8;
+    std::lock_guard lock(mtx);
+    energy = std::max(0.0, energy + delta);
 }
 
 bool Particle::isColliding(const Particle& other) const {
-    return false;
+    // lock both in address order to avoid deadlock
+    const Particle* a = this < &other ? this : &other;
+    const Particle* b = this < &other ? &other : this;
+    std::scoped_lock lock(a->mtx, b->mtx);
+
+    double dx = x - other.x;
+    double dy = y - other.y;
+    double dist2 = dx*dx + dy*dy;
+    double r = radius + other.radius;
+    return dist2 < (r*r);
+}
+
+void Particle::collide(Particle& other) {
+    // simple elastic swap
+    std::scoped_lock lock(mtx, other.mtx);
+    std::swap(vx, other.vx);
+    std::swap(vy, other.vy);
+    // optional energy loss
+    energy *= 0.9;
+    other.energy *= 0.9;
 }
