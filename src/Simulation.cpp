@@ -1,36 +1,37 @@
-#include "Simulation.h"
+#pragma once
 #include "Config.h"
+#include "Particle.h"
+#include "ContainmentField.h"
+#include "ThreadManager.h"
+#include <vector>
+#include <memory>
 
-#include <random>
-#include <algorithm>
-#include <cmath>
-#include <iostream>
+class Simulation {
+public:
+    explicit Simulation(const Config& cfg);
+    ~Simulation();
 
-Simulation::Simulation(const Config& cfg)
-  : fieldSize(cfg.field_size),
-    timeStep(cfg.time_step),
-    numThreads(cfg.initial_threads),
-    threadManager(std::make_unique<ThreadManager>(numThreads)),
-    containmentField(std::make_unique<ContainmentField>(cfg))
-{
-    std::mt19937 gen(cfg.random_seed ? cfg.random_seed : std::random_device{}());
-    std::uniform_real_distribution<> posDist(-fieldSize/2, fieldSize/2);
-    std::uniform_real_distribution<> velDist(-1.0, 1.0);
+    void start();
+    void stop();
+    void step();
 
-    particles.clear();
-    particles.reserve(cfg.num_particles);
-    for (size_t i = 0; i < cfg.num_particles; ++i) {
-        auto p = std::make_unique<Particle>(
-            posDist(gen),                 // x
-            posDist(gen),                 // y
-            cfg.initial_energy,           // initial energy
-            cfg.particle_radius,          // radius
-            cfg.max_energy                // ← max energy parameter
-        );
-        p->setVelocity(velDist(gen), velDist(gen));
-        particles.push_back(std::move(p));
-    }
-    std::cout << "Initialized " << particles.size() << " particles.\n";
-}
+    size_t getParticleCount() const;
+    const std::vector<std::unique_ptr<Particle>>& getParticles() const;
+    double getTotalEnergy() const;
 
-// ... rest of Simulation.cpp unchanged ...
+    void setNumThreads(size_t n);
+
+private:
+    void removeEscapedParticles();
+    void applyForces(double dt);
+    void updatePositions(double dt);
+    void handleCollisions();
+
+    std::vector<std::unique_ptr<Particle>> particles;
+    std::unique_ptr<ContainmentField> containmentField;
+    std::unique_ptr<ThreadManager>    threadManager;
+
+    double fieldSize{};
+    double timeStep{};
+    size_t numThreads{};
+};

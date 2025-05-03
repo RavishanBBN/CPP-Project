@@ -1,18 +1,48 @@
 #pragma once
+
+#include <vector>
+#include <memory>
 #include <mutex>
-#include "Particle.h"
+
 struct Config;
+
+class Particle;
 
 class ContainmentField {
 public:
-    explicit ContainmentField(const Config& cfg);
+    ContainmentField(const Config& config);
+    ~ContainmentField();
 
-    bool isParticleContained(const Particle& p) const;
-    void getContainmentForce(const Particle& p, double& fx, double& fy) const;
+    double getSize() const;
+
+    bool isParticleContained(const Particle& particle) const;
+    double getContainmentForce(const Particle& particle) const;
+
+    void setFieldStrength(double strength);
+    double getFieldStrength() const;
+
+    double getFieldEnergy() const;
+    void update(double dt);
+
+    void setDecayRate(double rate);
+    double getDecayRate() const;
 
 private:
-    mutable std::mutex mtx;
-    double halfSize;
+    double size;
     double fieldStrength;
+    double fieldEnergy;
     double decayRate;
-};
+    const size_t GRID_SIZE;
+    std::vector<double> fieldData;
+
+    struct EnergyPulse {
+        double x, y;
+        double strength;
+        double lifetime;
+    };
+    std::vector<EnergyPulse*> energyPulses;
+
+    mutable std::mutex fieldMutex;
+
+    void initializeField();
+}; 
