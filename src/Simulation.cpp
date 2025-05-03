@@ -5,13 +5,14 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
+#include <cmath>
 
 Simulation::Simulation(const Config& cfg)
     : fieldSize(cfg.field_size),
-      timeStep(cfg.time_step),
+      timeStep  (cfg.time_step),
       numThreads(cfg.initial_threads),
       containmentField(std::make_unique<ContainmentField>(cfg)),
-      threadManager(std::make_unique<ThreadManager>(cfg.initial_threads))
+      threadManager   (std::make_unique<ThreadManager>(cfg.initial_threads))
 {
     std::mt19937 rng(cfg.random_seed ? cfg.random_seed
                                      : std::random_device{}());
@@ -32,11 +33,11 @@ Simulation::Simulation(const Config& cfg)
 
 Simulation::~Simulation() { stop(); }
 
-// --------------------------------------------------- lifecycle
+// ------------------------------------------------ lifecycle
 void Simulation::start() { threadManager->start(); }
 void Simulation::stop()  { threadManager->stop();  }
 
-// --------------------------------------------------- outer step
+// ------------------------------------------------ main step
 void Simulation::step()
 {
     removeEscapedParticles();
@@ -45,7 +46,7 @@ void Simulation::step()
     handleCollisions();
 }
 
-// --------------------------------------------------- particle ops
+// ------------------------------------------------ helpers
 void Simulation::removeEscapedParticles()
 {
     particles.erase(
@@ -60,12 +61,25 @@ void Simulation::applyForces(double dt)
 {
     for (size_t i = 0; i < particles.size(); ++i)
         threadManager->addTask([&, i, dt] {
-            double fx, fy;
-            containmentField->getContainmentForce(*particles[i], fx, fy);
-            particles[i]->setVelocity(
-                particles[i]->getVX() + fx * dt,
-                particles[i]->getVY() + fy * dt);
+            auto&  p = particles[i];
+            double F = containmentField->getContainmentForce(*p); // magnitude
+
+            // unit vector toward origin
+            double dx = -p->getX();
+            double dy = -p->getY();
+            double len = std::hypot(dx, dy);
+
+            double fx = 0.0, fy = 0.0;
+            if (len > 1e-9) {          // avoid div‑by‑zero
+                fx = F * dx / len;
+                fy = F * dy / len;
+            }
+
+            p->setVelocity(
+                p->getVX() + fx * dt,
+                p->getVY() + fy * dt);
         });
+
     threadManager->waitForCompletion();
 }
 
@@ -73,10 +87,12 @@ void Simulation::updatePositions(double dt)
 {
     for (size_t i = 0; i < particles.size(); ++i)
         threadManager->addTask([&, i, dt] {
-            particles[i]->setPosition(
-                particles[i]->getX() + particles[i]->getVX() * dt,
-                particles[i]->getY() + particles[i]->getVY() * dt);
+            auto& p = particles[i];
+            p->setPosition(
+                p->getX() + p->getVX() * dt,
+                p->getY() + p->getVY() * dt);
         });
+
     threadManager->waitForCompletion();
 }
 
@@ -89,13 +105,15 @@ void Simulation::handleCollisions()
                 if (particles[i]->isColliding(*particles[j]))
                     particles[i]->collide(*particles[j]);
             });
+
     threadManager->waitForCompletion();
 }
 
-// --------------------------------------------------- queries / control
-size_t Simulation::getParticleCount() const { return particles.size(); }
+// ------------------------------------------------ queries
+size_t Simulation::getParticleCount() const                    { return particles.size(); }
+
 const std::vector<std::unique_ptr<Particle>>&
-Simulation::getParticles() const { return particles; }
+Simulation::getParticles() const                               { return particles; }
 
 double Simulation::getTotalEnergy() const
 {
